@@ -1,0 +1,59 @@
+name: Bootstrap Ibn Qayyim Library APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore and verify Android source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .source/part01.b64 .source/part02.b64 .source/part03.b64 | base64 -d > /tmp/ibnqayyim-source.tar.xz
+          xz -t /tmp/ibnqayyim-source.tar.xz
+          tar -xJf /tmp/ibnqayyim-source.tar.xz -C .
+          python3 dev-tests/check_project.py
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Run unit tests and assemble APK
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IbnQayyimLibrary-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Publish readable source tree to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .source .github/workflows/bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Import verified Android source and standard APK workflow"
+            git push origin HEAD:main || echo "::warning::APK built, but source could not be committed automatically"
+          fi
